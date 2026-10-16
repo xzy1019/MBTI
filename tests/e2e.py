@@ -15,9 +15,9 @@ with sync_playwright() as p:
   if i==6:
    page.get_by_role('button',name='暂停',exact=True).click();expect(page.get_by_role('heading',name='先歇一会儿，再继续。')).to_be_visible();page.get_by_role('button',name='继续探索',exact=True).click()
   page.locator(f'[data-answer="{i%7-3}"]').click()
-  expect(page.locator(f'[data-answer="{i%7-3}"]')).to_have_attribute("aria-pressed","true")
-  page.get_by_role('button',name='下一题' if i<98 else '检查并生成报告',exact=True).click()
   if i+1 in [25,50,75]:page.get_by_role('button',name='继续下一小节',exact=True).click()
+  elif i<98:expect(page.locator('.progress-label')).to_contain_text(f'第 {i+2} / 99')
+  else:expect(page.get_by_role('button',name='生成我的报告',exact=True)).to_be_visible()
  page.get_by_role('button',name='生成我的报告',exact=True).click();expect(page.locator('.type-seal')).to_be_visible()
  page.get_by_role('button',name='四维分析',exact=True).click();expect(page.get_by_text('可能的优势：',exact=True)).to_have_count(4)
  with page.expect_download() as dl:page.get_by_role('button',name='下载摘要图片',exact=True).click()
@@ -32,16 +32,19 @@ with sync_playwright() as p:
  other.locator('[data-answer="3"]').click();other.wait_for_timeout(1400)
  page.locator('[data-answer="-3"]').click();expect(page.get_by_text('另一设备保存了更新的答案。',exact=False).first).to_be_visible(timeout=6000)
  page.on('dialog',lambda dialog:dialog.accept())
- page.get_by_role('button',name='载入最新草稿').click();expect(page.locator('[data-answer="3"]')).to_have_attribute('aria-pressed','true')
+ page.get_by_role('button',name='载入最新草稿').click();expect(page.locator('.progress-label')).to_contain_text('第 101 / 300')
+ page.get_by_role('button',name='上一题',exact=True).click();expect(page.locator('[data-answer="3"]')).to_have_attribute('aria-pressed','true')
  page.get_by_role('button',name='换设备',exact=True).click();page.get_by_role('button',name='撤销链接',exact=True).click()
  # Continue all 201 extra questions through UI; basic answers remain untouched.
  for i in range(99,300):
+  if i==145:
+   ctx.set_offline(True);expect(page.get_by_text('你正在离线作答。',exact=False)).to_be_visible()
   if i>=120 and i<124:page.get_by_role('button',name='不适用 / 无相关经历',exact=True).click()
   else:page.locator(f'[data-answer="{(i+2)%7-3}"]').click()
-  if i==145:
-   ctx.set_offline(True);page.locator('[data-answer="2"]').click();expect(page.get_by_text('你正在离线作答。',exact=False)).to_be_visible();ctx.set_offline(False)
-  page.get_by_role('button',name='下一题' if i<299 else '检查并生成报告',exact=True).click()
   if i+1 in [120,140,160,180,200,220,240,260,280]:page.get_by_role('button',name='继续下一小节',exact=True).click()
+  elif i<299:expect(page.locator('.progress-label')).to_contain_text(f'第 {i+2} / 300')
+  else:expect(page.get_by_role('button',name='生成我的报告',exact=True)).to_be_visible()
+  if i==145:ctx.set_offline(False)
  page.get_by_role('button',name='生成我的报告',exact=True).click();expect(page.locator('.report-meta')).to_contain_text('详细版')
  for label in ['四维分析','职业发展','社交关系','恋爱关系','30 天行动']:
   page.get_by_role('button',name=label,exact=True).click()
@@ -55,6 +58,6 @@ with sync_playwright() as p:
  page.emulate_media(media='screen');page.goto(base+'/history');expect(page.locator('.history-type')).to_have_count(2)
  page.goto(base+'/admin');page.get_by_label('密码',exact=True).fill(os.environ.get('ATLAS_ADMIN_TEST_PASSWORD','local-development-password-long16'));page.get_by_role('button',name='登录',exact=True).click();expect(page.get_by_role('heading',name='题目维护',exact=True)).to_be_visible()
  page.get_by_role('button',name='报告预览',exact=True).click();expect(page.get_by_text('以下使用模拟答案预览',exact=False)).to_be_visible()
- print('PASS: 99-question + 201 upgrade, reload, pause, offline, QR recovery, conflict, revoke, report chapters, NA, PNG, PDF, history, admin preview; JS errors=',errors)
+ print('PASS: automatic advance across 99 + 201 questions, reload, pause, offline, QR recovery, conflict, revoke, report chapters, NA, PNG, PDF, history, admin preview; JS errors=',errors)
  assert not errors
  b.close()
