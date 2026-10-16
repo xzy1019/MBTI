@@ -1,0 +1,7 @@
+[Unit]
+Description=Self Atlas content backup excluding temporary answers
+After=mbti-site.service
+[Service]
+Type=oneshot
+ExecStart=/opt/mbti-site/current/deploy/backup.sh
+UMask=0077

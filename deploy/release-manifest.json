@@ -1,0 +1,25 @@
+{
+  "release": "v1-20261016",
+  "questionnaire": "2026.10.16-v1",
+  "algorithm": "atlas-1.0",
+  "files": {
+    "backend/app/scoring.py": "f4732255575d81e6d3a3821a4be143ff1b1a922c2cb2894785fa8e6ff9fab6df",
+    "backend/app/__init__.py": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "backend/app/content.py": "6e7fffbfe42ace726fc886cbbfa6b9964d4274df3232b37c3096ec0a197161fa",
+    "backend/app/main.py": "06b66d8a8dc00f7e9c6534b8849088ae9c6baddb46688c8e7d0ab101809cd1ee",
+    "backend/app/guidance.py": "b7e02196e25cb47de4d167d84fc22b040a62a57af8c44c1fe205ded1088edf96",
+    "frontend/dist/index.html": "f0d7b68989bb2d3fa43f61e23333cc4f8afed31856ded2e981732bd2035c0b02",
+    "frontend/dist/favicon.svg": "e2698c38918d783d9bc743b01ed05a127ef9a6fe34d64d3ecc7a98f48617bf41",
+    "frontend/dist/assets/index-CYDHil5c.js": "54de6c6ba9b6656980932e9cb672ae3783e6f0e4bea51e3b00fb55c0dee6f8bd",
+    "frontend/dist/assets/Questionnaire-CXk1vJ--.js": "eda805f65dd2d611251461ec1ffc911d6fe43fef72a36db06e6237e80dd3b912",
+    "frontend/dist/assets/index-BQm63q2Z.css": "5cd83a1e19683acce986bc157a6307b22c7909f993b173aa8fcbf140fe7b22e3",
+    "frontend/dist/assets/Admin-Dpeo3ouQ.js": "74d47bfd7f8a4b8b1eef6d2e36c3d561f8b9d8ab97401971ab7e84df7f1c2c3b"
+  },
+  "images": {
+    "api": "3b792b2ebafb",
+    "web": "07cd21f82b58",
+    "python": "4f228bc1cbcf",
+    "postgres": "589f742565e4",
+    "nginx": "dc73b49f5124"
+  }
+}

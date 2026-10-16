@@ -1,0 +1,10 @@
+.git
+.venv
+.local
+**/__pycache__
+**/node_modules
+.env
+.env.*
+backups
+artifacts
+secrets

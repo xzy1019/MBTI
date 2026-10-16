@@ -1,0 +1,14 @@
+[Unit]
+Description=Self Atlas questionnaire site
+Requires=mbti-docker.service
+After=mbti-docker.service network.target
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/mbti-site/current
+ExecStart=/opt/mbti-site/runtime/docker/docker compose --env-file /opt/mbti-site/.env up -d --no-build --wait --wait-timeout 180
+ExecStop=/opt/mbti-site/runtime/docker/docker compose --env-file /opt/mbti-site/.env stop
+TimeoutStartSec=240
+TimeoutStopSec=120
+[Install]
+WantedBy=multi-user.target

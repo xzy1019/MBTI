@@ -1,0 +1,7 @@
+[Unit]
+Description=Daily Self Atlas content backup
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+[Install]
+WantedBy=timers.target
