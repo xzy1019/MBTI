@@ -32,7 +32,10 @@ with sync_playwright() as p:
  other.locator('[data-answer="3"]').click();other.wait_for_timeout(1400)
  page.locator('[data-answer="-3"]').click();expect(page.get_by_text('另一设备保存了更新的答案。',exact=False).first).to_be_visible(timeout=6000)
  page.on('dialog',lambda dialog:dialog.accept())
- page.get_by_role('button',name='载入最新草稿').click();expect(page.locator('.progress-label')).to_contain_text('第 101 / 300')
+ page.get_by_role('button',name='载入最新草稿').click()
+ # Both devices may already show question 101; wait for the asynchronous restore itself.
+ expect(page.get_by_role('button',name='载入最新草稿',exact=True)).not_to_be_visible()
+ expect(page.locator('.progress-label')).to_contain_text('第 101 / 300')
  page.get_by_role('button',name='上一题',exact=True).click();expect(page.locator('[data-answer="3"]')).to_have_attribute('aria-pressed','true')
  page.get_by_role('button',name='换设备',exact=True).click();page.get_by_role('button',name='撤销链接',exact=True).click()
  # Continue all 201 extra questions through UI; basic answers remain untouched.

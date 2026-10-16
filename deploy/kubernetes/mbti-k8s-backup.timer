@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily MBTI Kubernetes backup
+
+[Timer]
+OnCalendar=*-*-* 03:25:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

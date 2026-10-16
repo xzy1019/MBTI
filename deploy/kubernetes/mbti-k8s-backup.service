@@ -1,0 +1,8 @@
+[Unit]
+Description=MBTI PostgreSQL backup in Kubernetes
+After=kubelet.service
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/bin/bash /opt/mbti-site/current/deploy/kubernetes/backup.sh

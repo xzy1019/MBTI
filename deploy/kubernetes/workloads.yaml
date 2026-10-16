@@ -1,0 +1,180 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mbti-postgres
+spec:
+  capacity: {storage: 10Gi}
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: mbti-local
+  local: {path: /srv/mbti-site/postgres}
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - {key: kubernetes.io/hostname, operator: In, values: [lab-node]}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: postgres}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: mbti-local
+  volumeName: mbti-postgres
+  resources: {requests: {storage: 10Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: postgres}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: mbti-postgres}}
+  template:
+    metadata: {labels: {app: mbti-postgres}}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: postgres
+          image: localhost/lab-postgres:17
+          imagePullPolicy: Never
+          env:
+            - {name: POSTGRES_USER, value: atlas}
+            - {name: POSTGRES_DB, value: atlas}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: mbti-secrets, key: POSTGRES_PASSWORD}}
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: '1', memory: 768Mi}
+          startupProbe:
+            exec: {command: [pg_isready, -U, atlas, -d, atlas]}
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec: {command: [pg_isready, -U, atlas, -d, atlas]}
+            periodSeconds: 5
+          livenessProbe:
+            exec: {command: [pg_isready, -U, atlas, -d, atlas]}
+            periodSeconds: 10
+      volumes: [{name: data, persistentVolumeClaim: {claimName: postgres}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: postgres}
+spec:
+  selector: {app: mbti-postgres}
+  ports: [{port: 5432, targetPort: 5432}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: mbti}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: mbti}}
+  template:
+    metadata: {labels: {app: mbti}}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector: {kubernetes.io/hostname: lab-node}
+      securityContext: {seccompProfile: {type: RuntimeDefault}}
+      initContainers:
+        - name: wait-for-postgres
+          image: docker.io/library/self-atlas-api:v2-auto-next-20261016
+          imagePullPolicy: Never
+          command: [python, -c]
+          args:
+            - |
+              import socket, time
+              for attempt in range(120):
+                  try:
+                      with socket.create_connection(('postgres', 5432), timeout=3):
+                          break
+                  except OSError:
+                      time.sleep(2)
+              else:
+                  raise SystemExit('Database did not become ready')
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+      containers:
+        # API binds to loopback and shares its network namespace only with Nginx.
+        - name: api
+          image: docker.io/library/self-atlas-api:v2-auto-next-20261016
+          imagePullPolicy: Never
+          envFrom: [{secretRef: {name: mbti-secrets}}]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: '1', memory: 768Mi}
+          startupProbe:
+            exec: {command: [python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/healthz',timeout=2)"]}
+            periodSeconds: 5
+            failureThreshold: 40
+          readinessProbe:
+            exec: {command: [python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/healthz',timeout=2)"]}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            exec: {command: [python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/healthz',timeout=2)"]}
+            periodSeconds: 20
+            timeoutSeconds: 3
+          volumeMounts:
+            - {name: api-data, mountPath: /data}
+            - {name: api-tmp, mountPath: /tmp}
+        - name: web
+          image: docker.io/library/self-atlas-web:v2-auto-next-20261016
+          imagePullPolicy: Never
+          ports:
+            - {name: http, containerPort: 8086, hostPort: 8086, hostIP: 172.29.20.85}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 50m, memory: 32Mi}
+            limits: {cpu: '1', memory: 192Mi}
+          startupProbe:
+            httpGet: {path: /healthz, port: 8086}
+            periodSeconds: 5
+            failureThreshold: 40
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8086}
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket: {port: 8086}
+            periodSeconds: 20
+          volumeMounts:
+            - {name: nginx-config, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true}
+            - {name: web-tmp, mountPath: /tmp}
+      volumes:
+        - {name: nginx-config, configMap: {name: mbti-nginx}}
+        - {name: api-data, emptyDir: {}}
+        - {name: api-tmp, emptyDir: {}}
+        - {name: web-tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: mbti}
+spec:
+  selector: {app: mbti}
+  ports: [{name: http, port: 8086, targetPort: 8086}]
