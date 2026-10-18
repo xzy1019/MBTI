@@ -2,7 +2,7 @@
 import os
 from playwright.sync_api import sync_playwright,expect
 
-base=os.environ.get('ATLAS_TEST_URL','http://127.0.0.1:5173')
+base=os.environ.get('ATLAS_TEST_URL','http://127.0.0.1:5173').rstrip('/')
 exe=os.environ.get('ATLAS_BROWSER_EXECUTABLE')
 with sync_playwright() as p:
     browser=p.chromium.launch(**({'executable_path':exe} if exe else {}))
@@ -10,6 +10,9 @@ with sync_playwright() as p:
     page=context.new_page();errors=[]
     page.on('pageerror',lambda e:errors.append(str(e)))
     page.goto(base+'/test?mode=basic')
+    page.get_by_role('button',name='开始探索',exact=True).click()
+    expect(page.locator('.alert.error')).to_contain_text('学号和姓名')
+    page.get_by_label('学号').fill('20261018002');page.get_by_label('姓名').fill('自动答题用户')
     page.get_by_role('button',name='开始探索',exact=True).click()
     # A double tap chooses one answer and advances exactly one question.
     page.locator('[data-answer="2"]').dblclick(delay=50)

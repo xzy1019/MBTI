@@ -81,6 +81,14 @@ class Event(Base):
     kind=Column(String(20),nullable=False)
     day=Column(String(10),nullable=False)
 
+class Submission(Base):
+    __tablename__='assessment_submissions'
+    id=Column(String(80),primary_key=True)
+    mode=Column(String(10),nullable=False)
+    version=Column(String(80),nullable=False)
+    encrypted=Column(Text,nullable=False)
+    created=Column(Float,nullable=False,default=time.time,index=True)
+
 def db():
     with SessionLocal() as session: yield session
 
@@ -187,6 +195,8 @@ class ScoreInput(BaseModel):
     version:str=Field(max_length=80)
     answers:dict[str,Any]
     submissionId:str=Field(min_length=8,max_length=80,pattern=r'^[a-zA-Z0-9_-]+$')
+    studentId:str|None=Field(default=None,max_length=80)
+    studentName:str|None=Field(default=None,max_length=80)
 
 def event(session,token,mode,kind):
     key=digest(token+':'+mode+':'+kind)
@@ -198,10 +208,42 @@ def event(session,token,mode,kind):
 @app.post('/api/assessments/score')
 def calculate(body:ScoreInput,request:Request,session:Session=Depends(db)):
     limit(request,'score',30,60)
+    student_id=(body.studentId or '').strip()
+    student_name=(body.studentName or '').strip()
+    if not student_id or not student_name:
+        raise HTTPException(422,'请先填写学号和姓名。')
+    if len(student_id)>80 or len(student_name)>80:
+        raise HTTPException(422,'学号或姓名过长。')
     bank=get_bank(session,body.version)
+    existing=session.get(Submission,body.submissionId)
+    if existing:
+        try:
+            saved=json.loads(cipher.decrypt(existing.encrypted.encode()).decode())
+            if existing.mode!=body.mode or existing.version!=body.version or saved.get('studentId')!=student_id or saved.get('studentName')!=student_name or saved.get('answers')!=body.answers:
+                raise HTTPException(409,'该测试编号已对应其他提交，请刷新草稿后重试。')
+            result=saved['report']
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(500,'提交记录暂时无法读取，请联系管理员。')
+        event(session,body.submissionId,body.mode,'completed')
+        return result
     try: result=score(bank,body.mode,body.answers)
     except ValueError as e: raise HTTPException(422,str(e))
     result['id']=body.submissionId
+    record={'studentId':student_id,'studentName':student_name,'answers':body.answers,'report':result}
+    session.add(Submission(id=body.submissionId,mode=body.mode,version=body.version,encrypted=cipher.encrypt(json.dumps(record,ensure_ascii=False).encode()).decode(),created=time.time()))
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        existing=session.get(Submission,body.submissionId)
+        if not existing: raise HTTPException(409,'提交未能保存，请重试。')
+        try: saved=json.loads(cipher.decrypt(existing.encrypted.encode()).decode())
+        except Exception: raise HTTPException(500,'提交记录暂时无法读取，请联系管理员。')
+        if existing.mode!=body.mode or existing.version!=body.version or saved.get('studentId')!=student_id or saved.get('studentName')!=student_name or saved.get('answers')!=body.answers:
+            raise HTTPException(409,'该测试编号已对应其他提交，请刷新草稿后重试。')
+        result=saved['report']
     event(session,body.submissionId,body.mode,'completed')
     return result
 
@@ -249,7 +291,9 @@ def validate_draft(session,draft):
         if type(a) is not int or not -3<=a<=3: raise HTTPException(422,'草稿答案无效')
     if not isinstance(draft.get('id'),str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',draft['id']): raise HTTPException(422,'草稿编号无效')
     if type(draft.get('index',0)) is not int or not 0<=draft.get('index',0)<len(qs): raise HTTPException(422,'草稿位置无效')
-    clean={k:draft[k] for k in ['id','mode','version','answers','index','startedAt'] if k in draft}
+    for key in ['studentId','studentName']:
+        if key in draft and (not isinstance(draft[key],str) or len(draft[key].strip())>80): raise HTTPException(422,'身份信息格式无效')
+    clean={k:draft[k] for k in ['id','mode','version','answers','index','startedAt','studentId','studentName'] if k in draft}
     if len(json.dumps(clean))>100000: raise HTTPException(413,'草稿过大')
     return clean
 
@@ -332,6 +376,37 @@ def overview(user=Depends(auth),session:Session=Depends(db)):
     stats=session.execute(select(Event.day,Event.mode,Event.kind,func.count()).group_by(Event.day,Event.mode,Event.kind).order_by(Event.day.desc()).limit(120)).all()
     logs=session.scalars(select(Audit).order_by(Audit.created.desc()).limit(30)).all()
     return {'current':current(session).id,'versions':[{'id':v.id,'title':v.title,'status':v.status,'created':v.created,'published':v.published} for v in versions],'stats':[{'day':r[0],'mode':r[1],'kind':r[2],'count':r[3]} for r in stats],'logs':[{'action':r.action,'created':r.created} for r in logs],'template':DEFAULT_TEMPLATE,'facets':{k:{x:v[x] for x in ['title','high','low']} for k,v in FACETS.items()}}
+
+def submission_data(row:Submission):
+    try:
+        return json.loads(cipher.decrypt(row.encrypted.encode()).decode())
+    except Exception:
+        raise HTTPException(500,'提交记录暂时无法读取，请联系管理员。')
+
+@app.get('/api/admin/submissions')
+def submissions(user=Depends(auth),session:Session=Depends(db)):
+    rows=session.scalars(select(Submission).order_by(Submission.created.desc())).all()
+    items=[]
+    for row in rows:
+        data=submission_data(row);report=data.get('report',{})
+        items.append({'id':row.id,'studentId':data.get('studentId',''),'studentName':data.get('studentName',''),'mode':row.mode,'version':row.version,'created':row.created,'type':report.get('type',''),'answered':report.get('coverage',{}).get('answered',0)})
+    return {'total':len(items),'items':items}
+
+@app.get('/api/admin/submissions/{submission_id}')
+def submission_detail(submission_id:str,user=Depends(auth),session:Session=Depends(db)):
+    row=session.get(Submission,submission_id)
+    if not row: raise HTTPException(404,'提交记录不存在。')
+    data=submission_data(row)
+    return {'id':row.id,'studentId':data.get('studentId',''),'studentName':data.get('studentName',''),'mode':row.mode,'version':row.version,'created':row.created,'answers':data.get('answers',{}),'report':data.get('report')}
+
+@app.get('/api/admin/submissions/{submission_id}/export')
+def export_submission(submission_id:str,user=Depends(auth),session:Session=Depends(db)):
+    row=session.get(Submission,submission_id)
+    if not row: raise HTTPException(404,'提交记录不存在。')
+    data=submission_data(row)
+    payload={'id':row.id,'studentId':data.get('studentId',''),'studentName':data.get('studentName',''),'mode':row.mode,'version':row.version,'created':row.created,'answers':data.get('answers',{}),'report':data.get('report')}
+    filename=f'mbti-submission-{re.sub(r"[^A-Za-z0-9_-]", "-", row.id)[:60]}.json'
+    return Response(content=json.dumps(payload,ensure_ascii=False,indent=2),media_type='application/json; charset=utf-8',headers={'Content-Disposition':f'attachment; filename="{filename}"'})
 
 class NewVersion(BaseModel):
     source:str=Field(max_length=80)

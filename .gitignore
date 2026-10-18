@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 node_modules/
 frontend/dist/
+frontend/dist-website85/
 .env
 .env.*
 !.env.example

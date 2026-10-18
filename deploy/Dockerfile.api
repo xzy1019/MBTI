@@ -1,9 +1,11 @@
-FROM python:3.12-slim-bookworm
+ARG PYTHON_BASE=python:3.12-slim-bookworm
+FROM ${PYTHON_BASE}
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DATA_DIR=/data
 WORKDIR /app
+USER root
 COPY backend/requirements.lock /app/requirements.lock
 COPY .offline/wheels /wheels
-RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.lock && rm -rf /wheels && useradd --uid 10001 --create-home atlas && mkdir /data && chown atlas:atlas /data
+RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.lock && rm -rf /wheels && (id -u atlas >/dev/null 2>&1 || useradd --uid 10001 --create-home atlas) && mkdir -p /data && chown atlas:atlas /data
 COPY backend/app /app/app
 USER atlas
 EXPOSE 8091

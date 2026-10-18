@@ -1,7 +1,7 @@
 export type Mode='basic'|'full'
 export type Question={id:string;text:string;section:string;na:boolean}
 export type Bank={id:string;title:string;mode:Mode;notice:string;questions:Question[]}
-export type Draft={id:string;mode:Mode;version:string;answers:Record<string,number|null>;index:number;startedAt:string;updatedAt:string;resume?:{token:string;revision:number;expires:number}}
+export type Draft={id:string;mode:Mode;version:string;answers:Record<string,number|null>;index:number;startedAt:string;updatedAt:string;studentId?:string;studentName?:string;resume?:{token:string;revision:number;expires:number}}
 export type Dimension={strength:string;blindspot:string;scenario:string;key:string;title:string;left:string;right:string;score:number;letter:string;borderline:boolean;count:number;observation:string;advice:string}
 export type Topic={key:string;section:string;title:string;left:string;right:string;score:number|null;valid:number;total:number;insufficient:boolean;balanced:boolean;observation:string;advice:string;evidence:{text:string;answer:number}[];review:string}
 export type Report={template:{overview:string;reflection:string;review:string};templateVersion:string;id:string;schema:number;mode:Mode;version:string;algorithm:string;createdAt:string;type:string;name:string;candidates:string[];dimensions:Dimension[];baseline:Dimension[];baselineType:string;topics:Topic[];priorities:{title:string;text:string;source:string}[];coverage:{answered:number;valid:number;notApplicable:number};warnings:string[];notice:string;plan:{title:string;task:string;review:string}[];dailyAdvice:{title:string;text:string}[]}
@@ -15,7 +15,7 @@ export function setCsrf(value:string){csrf=value}
 export async function api<T=any>(path:string,options:RequestInit={}):Promise<T>{
   const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),25000)
   try{
-    const response=await fetch(path,{...options,signal:options.signal||controller.signal,credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json',...(csrf?{'X-CSRF-Token':csrf}:{}),...options.headers}})
+    const response=await fetch(import.meta.env.BASE_URL.replace(/\/$/,'')+path,{...options,signal:options.signal||controller.signal,credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json',...(csrf?{'X-CSRF-Token':csrf}:{}),...options.headers}})
     if(response.status===204)return undefined as T
     const data=await response.json().catch(()=>({detail:'服务暂时不可用，请稍后重试。'}))
     if(!response.ok)throw new ApiError(typeof data.detail==='string'?data.detail:'请求内容不正确，请检查后重试。',response.status)

@@ -6,6 +6,7 @@ import QRCode from 'qrcode'
 import {api,post,load,save,keepReport,fetchBank,uid,date,sections,labels,ApiError,type Bank,type Draft,type Mode,type Report} from './lib'
 const props=defineProps<{mode:Mode}>();const router=useRouter()
 const bank=ref<Bank>();const draft=ref<Draft>();const basicDraft=ref<Draft>();const started=ref(false);const paused=ref(false);const loading=ref(true);const submitting=ref(false);const error=ref('');const saved=ref('');const saveFailure=ref(false);const reuse=ref(true);const showGrid=ref(false);const breakAt=ref<number|null>(null);const showReview=ref(false)
+const studentId=ref('');const studentName=ref('')
 const advancing=ref(false);const questionHeading=ref<HTMLHeadingElement>();
 const shareDialog=ref<HTMLDialogElement>();const shareURL=ref('');const qr=ref('');const sharing=ref(false);const syncError=ref('');const online=ref(navigator.onLine)
 let advanceTimer:ReturnType<typeof setTimeout>|undefined;let advanceRevision=0
@@ -51,7 +52,20 @@ async function choose(value:number|null){
 async function go(i:number){cancelAdvance();if(!draft.value)return;draft.value.index=Math.max(0,Math.min(qs.value.length-1,i));showGrid.value=false;error.value='';reach();try{await persist();scheduleSync()}catch(e){error.value=(e as Error).message}window.scrollTo({top:0,behavior:'instant'});await nextTick();questionHeading.value?.focus({preventScroll:true})}
 async function next(){cancelAdvance();if(!hasChoice.value)return;const after=index.value+1;if(after===99&&props.mode==='full'){breakAt.value=99;return}if(boundaries.value.includes(after)){breakAt.value=after;return}if(after>=qs.value.length){showReview.value=true;return}await go(after)}
 async function continueBreak(){const n=breakAt.value;breakAt.value=null;if(n!==null)await go(n)}
-async function begin(){if(!bank.value)return;const existing=draft.value;if(!existing){const base=canReuse.value&&reuse.value?basicDraft.value:undefined;draft.value={id:uid(),mode:props.mode,version:bank.value.id,answers:base?{...base.answers}:{},index:base?99:0,startedAt:new Date().toISOString(),updatedAt:new Date().toISOString()};await persist();void post('/api/events/start',{id:draft.value.id,mode:props.mode}).catch(()=>{})}started.value=true;reach()}
+async function begin(){
+  if(!bank.value)return
+  studentId.value=studentId.value.trim();studentName.value=studentName.value.trim()
+  if(!studentId.value||!studentName.value){error.value='请先填写学号和姓名，再开始答题。';return}
+  const existing=draft.value
+  if(!existing){
+    const base=canReuse.value&&reuse.value?basicDraft.value:undefined
+    draft.value={id:uid(),mode:props.mode,version:bank.value.id,answers:base?{...base.answers}:{},index:base?99:0,startedAt:new Date().toISOString(),updatedAt:new Date().toISOString(),studentId:studentId.value,studentName:studentName.value}
+    await persist();void post('/api/events/start',{id:draft.value.id,mode:props.mode}).catch(()=>{})
+  }else{
+    existing.studentId=studentId.value;existing.studentName=studentName.value;draft.value=existing;await persist()
+  }
+  started.value=true;error.value='';reach()
+}
 async function restart(){if(!confirm('重新开始将替换本机当前版本的草稿，已保存的历史报告不会删除。继续吗？'))return;cancelAdvance();if(draft.value?.resume)await revoke();draft.value=undefined;started.value=false;paused.value=false;showReview.value=false;breakAt.value=null;await begin()}
 async function submit(mode:Mode=props.mode){
   if(!draft.value||!bank.value||submitting.value)return
@@ -60,21 +74,21 @@ async function submit(mode:Mode=props.mode){
   submitting.value=true;error.value=''
   try{
     await persist();const chosen=Object.fromEntries(relevant.map(item=>[item.id,answers.value[item.id]]));const submissionId=mode===props.mode?draft.value.id:`${draft.value.id}-basic`
-    const report=await post<Report>('/api/assessments/score',{mode,version:draft.value.version,answers:chosen,submissionId});await keepReport(report)
+    const report=await post<Report>('/api/assessments/score',{mode,version:draft.value.version,answers:chosen,submissionId,studentId:draft.value.studentId||studentId.value,studentName:draft.value.studentName||studentName.value});await keepReport(report)
     if(mode===props.mode&&draft.value.resume){await revoke()}
     await router.push(`/report?id=${report.id}`)
   }catch(e){error.value=(e as Error).message}finally{submitting.value=false}
 }
 async function share(){
   cancelAdvance();if(!draft.value)return;shareDialog.value?.showModal();sharing.value=true;error.value='';
-  try{await persist();if(!draft.value.resume){draft.value.resume=await post('/api/resume-sessions',{draft:draft.value});await persist()}else{const ok=await syncDraft();if(!ok)throw new Error(syncError.value||'暂时无法更新续答链接，请联网后重试。')}shareURL.value=`${location.origin}/resume#${draft.value.resume!.token}`;qr.value=await QRCode.toDataURL(shareURL.value,{width:240,margin:2,color:{dark:'#253a31',light:'#ffffff'}})}catch(e){error.value=(e as Error).message}finally{sharing.value=false}
+  try{await persist();if(!draft.value.resume){draft.value.resume=await post('/api/resume-sessions',{draft:draft.value});await persist()}else{const ok=await syncDraft();if(!ok)throw new Error(syncError.value||'暂时无法更新续答链接，请联网后重试。')}shareURL.value=`${new URL(router.resolve('/resume').href,location.origin).href}#${draft.value.resume!.token}`;qr.value=await QRCode.toDataURL(shareURL.value,{width:240,margin:2,color:{dark:'#253a31',light:'#ffffff'}})}catch(e){error.value=(e as Error).message}finally{sharing.value=false}
 }
 async function revoke(){if(!draft.value?.resume)return;await api('/api/resume-sessions/current',{method:'DELETE',body:JSON.stringify({token:draft.value.resume.token})});delete draft.value.resume;syncError.value='';shareURL.value='';qr.value='';await persist();shareDialog.value?.close()}
 async function restoreLatest(){cancelAdvance();if(!draft.value?.resume||!confirm('载入其他设备的最新版本将替换当前本机答案，继续吗？'))return;try{const token=draft.value.resume.token;const r=await post('/api/resume-sessions/claim',{token});draft.value={...r.draft,updatedAt:new Date().toISOString(),resume:{token,revision:r.revision,expires:r.expires}};syncError.value='';await persist()}catch(e){error.value=(e as Error).message}}
 async function copyURL(){try{if(navigator.clipboard){await navigator.clipboard.writeText(shareURL.value);saved.value='续答链接已复制'}else saved.value='请长按下方链接复制'}catch{saved.value='请手动复制下方链接'}}
 function connectivity(){online.value=navigator.onLine;if(online.value)void syncDraft()}
 function preventClose(e:BeforeUnloadEvent){if(saveFailure.value||submitting.value){e.preventDefault();e.returnValue=''}}
-onMounted(async()=>{window.addEventListener('online',connectivity);window.addEventListener('offline',connectivity);window.addEventListener('beforeunload',preventClose);try{draft.value=await load<Draft>(`draft:${props.mode}`);basicDraft.value=await load<Draft>('draft:basic');bank.value=await fetchBank(props.mode,draft.value?.version);if(draft.value)started.value=true}catch(e){error.value=(e as Error).message}finally{loading.value=false}})
+onMounted(async()=>{window.addEventListener('online',connectivity);window.addEventListener('offline',connectivity);window.addEventListener('beforeunload',preventClose);try{draft.value=await load<Draft>(`draft:${props.mode}`);basicDraft.value=await load<Draft>('draft:basic');studentId.value=draft.value?.studentId||basicDraft.value?.studentId||'';studentName.value=draft.value?.studentName||basicDraft.value?.studentName||'';bank.value=await fetchBank(props.mode,draft.value?.version);if(draft.value&&studentId.value&&studentName.value)started.value=true}catch(e){error.value=(e as Error).message}finally{loading.value=false}})
 onBeforeUnmount(()=>{active=false;cancelAdvance();clearTimeout(syncTimer);window.removeEventListener('online',connectivity);window.removeEventListener('offline',connectivity);window.removeEventListener('beforeunload',preventClose)})
 </script>
 
@@ -87,9 +101,10 @@ onBeforeUnmount(()=>{active=false;cancelAdvance();clearTimeout(syncTimer);window
     <template v-if="bank">
       <section v-if="!started" class="intro-panel surface">
         <span class="eyebrow">给自己一段认真探索的时间</span><h2 class="serif">没有正确答案，<br>选择更接近平时的你。</h2><p>预计 {{mode==='basic'?'15–25':'50–80'}} 分钟，可以分次完成。请按近半年的通常习惯回答，区分真实行为与理想形象。</p>
+        <div class="identity-fields"><label class="field">学号<input v-model="studentId" autocomplete="off" maxlength="80" placeholder="请输入学号" @input="error=''" required></label><label class="field">姓名<input v-model="studentName" autocomplete="name" maxlength="80" placeholder="请输入姓名" @input="error=''" required></label></div>
         <div class="intro-points"><p><BookmarkCheck :size="19"/>选择后自动保存并进入下一题；换设备请主动生成续答链接。</p><p><Coffee :size="19"/>每完成一个小节可以休息；没有强制计时。</p><p><Check :size="19"/>专项经验题可选“不适用”，信息不足会如实说明。</p></div>
         <label v-if="canReuse" class="check-row"><input type="checkbox" v-model="reuse">沿用 {{date(basicDraft!.startedAt)}} 的 99 题答案，仅补答 201 题。</label>
-        <p class="fineprint">{{bank.notice}} 数据默认保存在本机；生成报告时临时发送答案到服务器，不作长期保存。</p><button class="primary" @click="begin">开始探索 <ArrowRight :size="17"/></button>
+        <p class="fineprint">{{bank.notice}} 学号、姓名、答案和报告会在提交后保存到管理员后台，用于查看与导出；草稿仍默认保存在本机。</p><button class="primary" @click="begin">开始探索 <ArrowRight :size="17"/></button>
       </section>
       <template v-else-if="draft&&q">
         <div class="quiz-toolbar"><span class="saved-state" :class="{danger:saveFailure}" role="status"><BookmarkCheck :size="15"/>{{saved||'本机草稿已载入'}} <small v-if="draft.updatedAt">{{new Date(draft.updatedAt).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}}</small></span><div class="toolbar-actions"><button class="text-button" @click="cancelAdvance();showGrid=!showGrid"><Grid2X2 :size="15"/>题号</button><button class="text-button" @click="share"><Link :size="15"/>换设备</button><button class="text-button" @click="cancelAdvance();paused=!paused"><Coffee :size="15"/>{{paused?'继续':'暂停'}}</button></div></div>

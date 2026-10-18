@@ -16,15 +16,44 @@ def test_public_bank_and_example_no_stats(client):
     with main.SessionLocal() as s:assert not s.scalars(select(main.Event)).all()
     assert client.get('/healthz').json()['status']=='ok'
 
-def test_score_idempotent_without_raw_answers(client):
+def test_score_submission_is_idempotent_and_encrypted(client):
     d=draft(client);bank=client.get('/api/questionnaires/current').json()
-    body={'submissionId':'idempotent-1234','mode':'basic','version':d['version'],'answers':{q['id']:0 for q in bank['questions']}}
+    body={'submissionId':'idempotent-1234','mode':'basic','version':d['version'],'answers':{q['id']:0 for q in bank['questions']},'studentId':'test-001','studentName':'测试用户'}
     for _ in range(2):
         r=client.post('/api/assessments/score',json=body)
         assert r.status_code==200 and r.json()['type']=='XXXX'
     with main.SessionLocal() as s:
         assert len(s.scalars(select(main.Event)).all())==1
         assert not s.scalars(select(main.Resume)).all()
+        submission=s.get(main.Submission,'idempotent-1234')
+        assert submission is not None and '测试用户' not in submission.encrypted and 'test-001' not in submission.encrypted
+
+def test_submission_requires_identity_and_admin_can_view_export(admin):
+    bank=admin.get('/api/questionnaires/current').json()
+    answers={q['id']:2 for q in bank['questions']}
+    body={'submissionId':'student-submission-123','mode':'basic','version':bank['id'],'answers':answers,'studentId':'20260001','studentName':'测试同学'}
+    assert admin.post('/api/assessments/score',json={**body,'studentName':''}).status_code==422
+    assert admin.get('/api/admin/submissions').json()=={'total':0,'items':[]}
+    result=admin.post('/api/assessments/score',json=body)
+    assert result.status_code==200
+    assert admin.post('/api/assessments/score',json=body).json()==result.json()
+    assert admin.post('/api/assessments/score',json={**body,'studentName':'另一位'}).status_code==409
+    changed={**body,'answers':{**answers,bank['questions'][0]['id']:3}}
+    assert admin.post('/api/assessments/score',json=changed).status_code==409
+    listing=admin.get('/api/admin/submissions').json()
+    assert listing['total']==1 and listing['items'][0]['studentName']=='测试同学'
+    detail=admin.get('/api/admin/submissions/student-submission-123').json()
+    assert detail['answers']==answers and detail['report']['type']==result.json()['type']
+    exported=admin.get('/api/admin/submissions/student-submission-123/export')
+    assert exported.status_code==200 and exported.headers['content-type'].startswith('application/json')
+    assert exported.json()['studentId']=='20260001' and exported.json()['answers']==answers
+    with main.SessionLocal() as s:
+        row=s.get(main.Submission,'student-submission-123')
+        assert '测试同学' not in row.encrypted and '20260001' not in row.encrypted
+
+def test_submission_admin_routes_require_login(client):
+    assert client.get('/api/admin/submissions').status_code==401
+    assert client.get('/api/admin/submissions/no-such-id').status_code==401
 
 def test_resume_encrypted_conflict_revoke(client):
     d=draft(client);r=client.post('/api/resume-sessions',json={'draft':d});assert r.status_code==200

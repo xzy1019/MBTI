@@ -1,14 +1,14 @@
 from playwright.sync_api import sync_playwright,expect
 from pathlib import Path
 import json,os
-base=os.environ.get('ATLAS_TEST_URL','http://127.0.0.1:5173')
+base=os.environ.get('ATLAS_TEST_URL','http://127.0.0.1:5173').rstrip('/')
 exe=os.environ.get('ATLAS_BROWSER_EXECUTABLE')
 Path('artifacts/e2e').mkdir(parents=True,exist_ok=True)
 with sync_playwright() as p:
  b=p.chromium.launch(**({'executable_path':exe} if exe else {}))
  ctx=b.new_context(viewport={'width':390,'height':844},has_touch=True)
  page=ctx.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
- page.goto(base+'/test?mode=basic');page.get_by_role('button',name='开始探索',exact=True).click()
+ page.goto(base+'/test?mode=basic');page.get_by_label('学号').fill('20261018001');page.get_by_label('姓名').fill('验收用户');page.get_by_role('button',name='开始探索',exact=True).click()
  for i in range(99):
   if i==3:
    page.reload();expect(page.locator('.progress-label')).to_contain_text('第 4 / 99')
@@ -25,7 +25,7 @@ with sync_playwright() as p:
  page.get_by_role('button',name='继续 300 题探索',exact=True).click();expect(page.locator('.check-row')).to_contain_text('仅补答 201 题')
  page.get_by_role('button',name='开始探索',exact=True).click();expect(page.locator('.progress-label')).to_contain_text('第 100 / 300')
  page.get_by_role('button',name='换设备',exact=True).click();expect(page.locator('dialog input')).not_to_have_value('')
- link=page.locator('dialog input').input_value();assert '/resume#' in link
+ link=page.locator('dialog input').input_value();assert link.startswith(base+'/resume#')
  page.get_by_role('button',name='关闭续答窗口').click()
  ctx2=b.new_context(viewport={'width':820,'height':1180});other=ctx2.new_page();other.goto(link);expect(other.locator('.progress-label')).to_contain_text('第 100 / 300');assert '#' not in other.url
  # Force two clients to edit the same revision; only the later client must resolve conflict.
@@ -60,6 +60,11 @@ with sync_playwright() as p:
  assert page.locator('.report-section:visible').count()==6
  page.emulate_media(media='screen');page.goto(base+'/history');expect(page.locator('.history-type')).to_have_count(2)
  page.goto(base+'/admin');page.get_by_label('密码',exact=True).fill(os.environ.get('ATLAS_ADMIN_TEST_PASSWORD','local-development-password-long16'));page.get_by_role('button',name='登录',exact=True).click();expect(page.get_by_role('heading',name='题目维护',exact=True)).to_be_visible()
+ expect(page.get_by_role('heading',name='答题提交',exact=True)).to_be_visible();expect(page.locator('.submission-section')).to_contain_text('验收用户');expect(page.locator('.submission-section tbody tr')).to_have_count(2)
+ with page.expect_download() as dl:page.locator('.submission-section tbody tr').first.get_by_role('button',name='导出',exact=True).click()
+ exported=json.loads(Path(dl.value.path()).read_text());assert exported['studentId']=='20261018001' and exported['studentName']=='验收用户' and len(exported['answers']) in [99,300]
+ page.locator('.submission-section tbody tr').first.get_by_role('button',name='查看',exact=True).click();expect(page.get_by_role('heading',name='作答记录 · 300 题',exact=False).first).to_be_visible()
+ expect(page.locator('.submission-detail .report-hero')).to_be_visible();page.get_by_role('button',name='返回列表',exact=True).click()
  page.get_by_role('button',name='报告预览',exact=True).click();expect(page.get_by_text('以下使用模拟答案预览',exact=False)).to_be_visible()
  print('PASS: automatic advance across 99 + 201 questions, reload, pause, offline, QR recovery, conflict, revoke, report chapters, NA, PNG, PDF, history, admin preview; JS errors=',errors)
  assert not errors
