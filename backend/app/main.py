@@ -124,7 +124,7 @@ async def lifespan(app):
         username=os.getenv('ADMIN_USERNAME','admin')
         if not session.get(Admin,username):
             password=os.getenv('ADMIN_PASSWORD','')
-            if len(password)<16: raise RuntimeError('首次启动须配置至少 16 个字符的 ADMIN_PASSWORD。')
+            if len(password)<9: raise RuntimeError('首次启动须配置至少 9 个字符的 ADMIN_PASSWORD。')
             session.add(Admin(username=username,password=hasher.hash(password)))
         session.commit();cleanup(session)
     task=asyncio.create_task(cleanup_loop())
@@ -462,7 +462,7 @@ def preview_version(version:str,body:ScoreInput,user=Depends(auth),session:Sessi
 
 class PasswordInput(BaseModel):
     current:str=Field(max_length=200)
-    password:str=Field(min_length=16,max_length=200)
+    password:str=Field(min_length=9,max_length=200)
 
 @app.post('/api/admin/password',status_code=204)
 def password_change(body:PasswordInput,user=Depends(auth),session:Session=Depends(db)):

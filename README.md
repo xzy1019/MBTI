@@ -31,7 +31,7 @@ python3.12 -m venv .venv
 .venv/bin/python -m pip install -r backend/requirements-dev.txt
 # 使用独立随机值；不要将实际密钥写入版本库。
 export SECRET_KEY='replace-with-your-random-value-at-least-32-characters'
-export ADMIN_PASSWORD='replace-with-a-random-password-at-least-16-characters'
+export ADMIN_PASSWORD='replace-with-a-random-password-at-least-9-characters'
 export PUBLIC_ORIGIN='http://127.0.0.1:5173'
 .venv/bin/uvicorn backend.app.main:app --host 127.0.0.1 --port 8091 --no-access-log
 ```

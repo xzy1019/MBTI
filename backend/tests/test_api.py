@@ -101,8 +101,11 @@ def test_immutable_version_old_draft_and_preview(admin):
     assert not admin.get('/api/admin/overview').json()['stats']
 
 def test_password_change_revokes_session(admin):
-    r=admin.post('/api/admin/password',json={'current':'test-only-admin-password-16chars','password':'new-test-password-longer-than16'})
+    too_short=admin.post('/api/admin/password',json={'current':'test-only-admin-password-16chars','password':'short888'})
+    assert too_short.status_code==422
+    r=admin.post('/api/admin/password',json={'current':'test-only-admin-password-16chars','password':'new-test-9'})
     assert r.status_code==204 and admin.get('/api/admin/me').status_code==401
+    assert admin.post('/api/admin/login',json={'username':'admin','password':'new-test-9'}).status_code==200
 
 def test_anonymous_section_progress_idempotent(client):
     body={'id':'section-visit-test','mode':'full','section':'career'}
