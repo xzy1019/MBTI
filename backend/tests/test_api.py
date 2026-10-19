@@ -10,6 +10,10 @@ def test_public_bank_and_example_no_stats(client):
     a=client.get('/api/questionnaires/current?mode=basic').json()
     b=client.get('/api/questionnaires/current?mode=full').json()
     assert len(a['questions'])==99 and len(b['questions'])==300
+    assert b['id']=='2026.10.19-v2'
+    assert len({q['text'] for q in b['questions']})==300
+    assert max(len(q['text']) for q in b['questions'])<=40
+    assert '不评估抑郁或暴力风险' in b['notice']
     assert a['questions']==b['questions'][:99]
     assert 'direction' not in a['questions'][0]
     assert client.get('/api/reports/example?mode=full').status_code==200
@@ -31,25 +35,35 @@ def test_score_submission_is_idempotent_and_encrypted(client):
 def test_submission_requires_identity_and_admin_can_view_export(admin):
     bank=admin.get('/api/questionnaires/current').json()
     answers={q['id']:2 for q in bank['questions']}
-    body={'submissionId':'student-submission-123','mode':'basic','version':bank['id'],'answers':answers,'studentId':'20260001','studentName':'测试同学'}
+    body={'submissionId':'student-submission-123','mode':'basic','version':bank['id'],'answers':answers,'studentId':'20260001','studentName':'测试同学','supportRequested':True}
     assert admin.post('/api/assessments/score',json={**body,'studentName':''}).status_code==422
     assert admin.get('/api/admin/submissions').json()=={'total':0,'items':[]}
     result=admin.post('/api/assessments/score',json=body)
     assert result.status_code==200
     assert admin.post('/api/assessments/score',json=body).json()==result.json()
+    assert admin.post('/api/assessments/score',json={**body,'supportRequested':False}).status_code==409
     assert admin.post('/api/assessments/score',json={**body,'studentName':'另一位'}).status_code==409
     changed={**body,'answers':{**answers,bank['questions'][0]['id']:3}}
     assert admin.post('/api/assessments/score',json=changed).status_code==409
     listing=admin.get('/api/admin/submissions').json()
-    assert listing['total']==1 and listing['items'][0]['studentName']=='测试同学'
+    assert listing['total']==1 and listing['items'][0]['studentName']=='测试同学' and listing['items'][0]['supportRequested'] is True
     detail=admin.get('/api/admin/submissions/student-submission-123').json()
-    assert detail['answers']==answers and detail['report']['type']==result.json()['type']
+    assert detail['answers']==answers and detail['report']['type']==result.json()['type'] and detail['supportRequested'] is True
     exported=admin.get('/api/admin/submissions/student-submission-123/export')
     assert exported.status_code==200 and exported.headers['content-type'].startswith('application/json')
-    assert exported.json()['studentId']=='20260001' and exported.json()['answers']==answers
+    assert exported.json()['studentId']=='20260001' and exported.json()['answers']==answers and exported.json()['supportRequested'] is True
     with main.SessionLocal() as s:
         row=s.get(main.Submission,'student-submission-123')
         assert '测试同学' not in row.encrypted and '20260001' not in row.encrypted
+
+def test_support_request_requires_explicit_opt_in(admin):
+    bank=admin.get('/api/questionnaires/current').json()
+    body={'submissionId':'no-support-opt-in-123','mode':'basic','version':bank['id'],'answers':{q['id']:3 for q in bank['questions']},'studentId':'20260002','studentName':'未勾选同学'}
+    assert admin.post('/api/assessments/score',json=body).status_code==200
+    item=admin.get('/api/admin/submissions').json()['items'][0]
+    assert item['supportRequested'] is False
+    detail=admin.get('/api/admin/submissions/no-support-opt-in-123').json()
+    assert detail['supportRequested'] is False
 
 def test_submission_admin_routes_require_login(client):
     assert client.get('/api/admin/submissions').status_code==401

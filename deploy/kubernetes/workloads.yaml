@@ -82,7 +82,7 @@ spec:
       securityContext: {seccompProfile: {type: RuntimeDefault}}
       initContainers:
         - name: wait-for-postgres
-          image: docker.io/library/self-atlas-api:v4-admin-policy-20261019
+          image: docker.io/library/self-atlas-api:v5-college-content-20261019
           imagePullPolicy: Never
           command: [python, -c]
           args:
@@ -109,7 +109,7 @@ spec:
       containers:
         # API binds to loopback and shares its network namespace only with Nginx.
         - name: api
-          image: docker.io/library/self-atlas-api:v4-admin-policy-20261019
+          image: docker.io/library/self-atlas-api:v5-college-content-20261019
           imagePullPolicy: Never
           envFrom: [{secretRef: {name: mbti-secrets}}]
           securityContext:
@@ -138,7 +138,7 @@ spec:
             - {name: api-data, mountPath: /data}
             - {name: api-tmp, mountPath: /tmp}
         - name: web
-          image: localhost/self-atlas-web:v6-admin-policy-20261019
+          image: localhost/self-atlas-web:v7-college-content-20261019
           imagePullPolicy: Never
           ports:
             - {name: http, containerPort: 8086}

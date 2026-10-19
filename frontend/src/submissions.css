@@ -14,6 +14,11 @@
   margin-bottom: 24px;
 }
 
+.support-alert {
+  border-left: 4px solid var(--peach-ink);
+  background: var(--peach);
+}
+
 .submission-search {
   max-width: 520px;
   margin-top: 22px;

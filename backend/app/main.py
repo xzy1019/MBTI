@@ -197,6 +197,7 @@ class ScoreInput(BaseModel):
     submissionId:str=Field(min_length=8,max_length=80,pattern=r'^[a-zA-Z0-9_-]+$')
     studentId:str|None=Field(default=None,max_length=80)
     studentName:str|None=Field(default=None,max_length=80)
+    supportRequested:bool=False
 
 def event(session,token,mode,kind):
     key=digest(token+':'+mode+':'+kind)
@@ -219,7 +220,7 @@ def calculate(body:ScoreInput,request:Request,session:Session=Depends(db)):
     if existing:
         try:
             saved=json.loads(cipher.decrypt(existing.encrypted.encode()).decode())
-            if existing.mode!=body.mode or existing.version!=body.version or saved.get('studentId')!=student_id or saved.get('studentName')!=student_name or saved.get('answers')!=body.answers:
+            if existing.mode!=body.mode or existing.version!=body.version or saved.get('studentId')!=student_id or saved.get('studentName')!=student_name or saved.get('answers')!=body.answers or saved.get('supportRequested',False)!=body.supportRequested:
                 raise HTTPException(409,'该测试编号已对应其他提交，请刷新草稿后重试。')
             result=saved['report']
         except HTTPException:
@@ -231,7 +232,7 @@ def calculate(body:ScoreInput,request:Request,session:Session=Depends(db)):
     try: result=score(bank,body.mode,body.answers)
     except ValueError as e: raise HTTPException(422,str(e))
     result['id']=body.submissionId
-    record={'studentId':student_id,'studentName':student_name,'answers':body.answers,'report':result}
+    record={'studentId':student_id,'studentName':student_name,'answers':body.answers,'report':result,'supportRequested':body.supportRequested}
     session.add(Submission(id=body.submissionId,mode=body.mode,version=body.version,encrypted=cipher.encrypt(json.dumps(record,ensure_ascii=False).encode()).decode(),created=time.time()))
     try:
         session.commit()
@@ -241,7 +242,7 @@ def calculate(body:ScoreInput,request:Request,session:Session=Depends(db)):
         if not existing: raise HTTPException(409,'提交未能保存，请重试。')
         try: saved=json.loads(cipher.decrypt(existing.encrypted.encode()).decode())
         except Exception: raise HTTPException(500,'提交记录暂时无法读取，请联系管理员。')
-        if existing.mode!=body.mode or existing.version!=body.version or saved.get('studentId')!=student_id or saved.get('studentName')!=student_name or saved.get('answers')!=body.answers:
+        if existing.mode!=body.mode or existing.version!=body.version or saved.get('studentId')!=student_id or saved.get('studentName')!=student_name or saved.get('answers')!=body.answers or saved.get('supportRequested',False)!=body.supportRequested:
             raise HTTPException(409,'该测试编号已对应其他提交，请刷新草稿后重试。')
         result=saved['report']
     event(session,body.submissionId,body.mode,'completed')
@@ -389,7 +390,7 @@ def submissions(user=Depends(auth),session:Session=Depends(db)):
     items=[]
     for row in rows:
         data=submission_data(row);report=data.get('report',{})
-        items.append({'id':row.id,'studentId':data.get('studentId',''),'studentName':data.get('studentName',''),'mode':row.mode,'version':row.version,'created':row.created,'type':report.get('type',''),'answered':report.get('coverage',{}).get('answered',0)})
+        items.append({'id':row.id,'studentId':data.get('studentId',''),'studentName':data.get('studentName',''),'mode':row.mode,'version':row.version,'created':row.created,'type':report.get('type',''),'answered':report.get('coverage',{}).get('answered',0),'supportRequested':bool(data.get('supportRequested',False))})
     return {'total':len(items),'items':items}
 
 @app.get('/api/admin/submissions/{submission_id}')
@@ -397,14 +398,14 @@ def submission_detail(submission_id:str,user=Depends(auth),session:Session=Depen
     row=session.get(Submission,submission_id)
     if not row: raise HTTPException(404,'提交记录不存在。')
     data=submission_data(row)
-    return {'id':row.id,'studentId':data.get('studentId',''),'studentName':data.get('studentName',''),'mode':row.mode,'version':row.version,'created':row.created,'answers':data.get('answers',{}),'report':data.get('report')}
+    return {'id':row.id,'studentId':data.get('studentId',''),'studentName':data.get('studentName',''),'mode':row.mode,'version':row.version,'created':row.created,'answers':data.get('answers',{}),'report':data.get('report'),'supportRequested':bool(data.get('supportRequested',False))}
 
 @app.get('/api/admin/submissions/{submission_id}/export')
 def export_submission(submission_id:str,user=Depends(auth),session:Session=Depends(db)):
     row=session.get(Submission,submission_id)
     if not row: raise HTTPException(404,'提交记录不存在。')
     data=submission_data(row)
-    payload={'id':row.id,'studentId':data.get('studentId',''),'studentName':data.get('studentName',''),'mode':row.mode,'version':row.version,'created':row.created,'answers':data.get('answers',{}),'report':data.get('report')}
+    payload={'id':row.id,'studentId':data.get('studentId',''),'studentName':data.get('studentName',''),'mode':row.mode,'version':row.version,'created':row.created,'answers':data.get('answers',{}),'report':data.get('report'),'supportRequested':bool(data.get('supportRequested',False))}
     filename=f'mbti-submission-{re.sub(r"[^A-Za-z0-9_-]", "-", row.id)[:60]}.json'
     return Response(content=json.dumps(payload,ensure_ascii=False,indent=2),media_type='application/json; charset=utf-8',headers={'Content-Disposition':f'attachment; filename="{filename}"'})
 
